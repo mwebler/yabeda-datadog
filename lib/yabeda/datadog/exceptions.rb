@@ -10,6 +10,13 @@ module Yabeda
       end
     end
 
+    # = This error raised when queue_full_behavior is not :block or :drop
+    class QueueFullBehaviorError < ConfigError
+      def initialize(value)
+        super("Unknown queue_full_behavior #{value.inspect}, expected :block or :drop")
+      end
+    end
+
     # = This error raised when no Datadog application key provided
     class AppKeyError < ConfigError
       def initialize(msg = "Datadog application key is missing")

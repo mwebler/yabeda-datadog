@@ -15,6 +15,7 @@ module Yabeda
                   batch_size: 10,
                   queue_size: 1000,
                   num_threads: 2,
+                  queue_full_behavior: :block,
                   log_level: Logger::INFO
     end
   end
