@@ -52,13 +52,19 @@ RSpec.describe Yabeda::Datadog::Worker do
   end
 
   describe "::start with YABEDA_DATADOG_QUEUE_FULL_BEHAVIOR set" do
+    def clear_anyway_env_cache
+      Anyway.env.clear if Anyway.respond_to?(:env) && Anyway.env.respond_to?(:clear)
+    end
+
     around do |example|
-      ENV["YABEDA_DATADOG_QUEUE_FULL_BEHAVIOR"] = "drop"
-      Anyway.env.clear if Anyway.respond_to?(:env) && Anyway.env.respond_to?(:clear)
-      example.run
-    ensure
-      ENV.delete("YABEDA_DATADOG_QUEUE_FULL_BEHAVIOR")
-      Anyway.env.clear if Anyway.respond_to?(:env) && Anyway.env.respond_to?(:clear)
+      begin
+        ENV["YABEDA_DATADOG_QUEUE_FULL_BEHAVIOR"] = "drop"
+        clear_anyway_env_cache
+        example.run
+      ensure
+        ENV.delete("YABEDA_DATADOG_QUEUE_FULL_BEHAVIOR")
+        clear_anyway_env_cache
+      end
     end
 
     it "drops instead of blocking" do
@@ -68,15 +74,6 @@ RSpec.describe Yabeda::Datadog::Worker do
 
       expect(worker.enqueue(:SEND, data: 1)).to be_nil
       expect(worker.dropped_count).to eq(1)
-    end
-  end
-
-  describe "::parse_queue_full_behavior" do
-    it "normalizes symbols, strings and blanks" do
-      expect([:drop, "drop", "DROP", " :drop "].map { |v| described_class.parse_queue_full_behavior(v) })
-        .to all(eq(:drop))
-      expect([nil, "", :block, "block"].map { |v| described_class.parse_queue_full_behavior(v) })
-        .to all(eq(:block))
     end
   end
 
@@ -101,23 +98,26 @@ RSpec.describe Yabeda::Datadog::Worker do
         queue.pop
         expect(pusher.join(1)).to eq(pusher)
       end
+    end
 
-      context "with queue_full_behavior: :drop" do
-        let(:worker) { described_class.new(queue, queue_full_behavior: :drop) }
+    context "when the queue is full and queue_full_behavior is :drop" do
+      let(:queue) { SizedQueue.new(1) }
+      let(:worker) { described_class.new(queue, queue_full_behavior: :drop) }
 
-        it "drops the action instead of waiting" do
-          expect(worker.enqueue(:SEND, data: 2)).to be_nil
-          expect(queue.size).to eq(1)
-          expect(worker.dropped_count).to eq(1)
-        end
+      before { worker.enqueue(:SEND, data: 1) }
 
-        it "warns on the first drop and then every 1000th" do
-          allow(Yabeda::Datadog::Logging.instance).to receive(:warn)
+      it "drops the action instead of waiting" do
+        expect(worker.enqueue(:SEND, data: 2)).to be_nil
+        expect(queue.size).to eq(1)
+        expect(worker.dropped_count).to eq(1)
+      end
 
-          1001.times { worker.enqueue(:SEND, data: 2) }
+      it "warns on the first drop and then every 1000th" do
+        allow(Yabeda::Datadog::Logging.instance).to receive(:warn)
 
-          expect(Yabeda::Datadog::Logging.instance).to have_received(:warn).twice
-        end
+        1001.times { worker.enqueue(:SEND, data: 2) }
+
+        expect(Yabeda::Datadog::Logging.instance).to have_received(:warn).twice
       end
     end
 

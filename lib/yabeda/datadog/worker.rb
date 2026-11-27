@@ -2,20 +2,20 @@
 
 require "yabeda/datadog/worker/send"
 require "yabeda/datadog/worker/register"
+require "yabeda/datadog/queue_full_behavior"
 
 module Yabeda
   module Datadog
     # = Perform actions async
     class Worker
-      QUEUE_FULL_BEHAVIORS = %i[block drop].freeze
       DROP_WARNING_INTERVAL = 1000
 
       def self.start(config)
         queue_size = config.queue_size
         num_threads = config.num_threads
-        queue_full_behavior = parse_queue_full_behavior(config.queue_full_behavior)
+        queue_full_behavior = QueueFullBehavior.parse(config.queue_full_behavior)
         Logging.instance.info(
-          "start worker; queue size: #{queue_size}; threads #{num_threads}; queue full behavior: #{queue_full_behavior}",
+          "start worker; queue size: #{queue_size}; threads #{num_threads}; queue full: #{queue_full_behavior}",
         )
 
         queue = SizedQueue.new(queue_size)
@@ -24,23 +24,12 @@ module Yabeda
         instance
       end
 
-      # Accepts :drop, "drop", "DROP" or ":drop" (values from environment variables are strings).
-      def self.parse_queue_full_behavior(value)
-        normalized = value.to_s.strip.downcase.sub(/\A:/, "")
-        return :block if normalized.empty?
-
-        behavior = normalized.to_sym
-        raise QueueFullBehaviorError, value unless QUEUE_FULL_BEHAVIORS.include?(behavior)
-
-        behavior
-      end
-
       attr_reader :dropped_count
 
       def initialize(queue, queue_full_behavior: :block)
         @queue = queue
         @threads = []
-        @queue_full_behavior = self.class.parse_queue_full_behavior(queue_full_behavior)
+        @queue_full_behavior = QueueFullBehavior.parse(queue_full_behavior)
         @dropped_count = 0
       end
 
