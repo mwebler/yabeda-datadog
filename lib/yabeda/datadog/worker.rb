@@ -7,24 +7,55 @@ module Yabeda
   module Datadog
     # = Perform actions async
     class Worker
+      QUEUE_FULL_BEHAVIORS = %i[block drop].freeze
+      DROP_WARNING_INTERVAL = 1000
+
       def self.start(config)
         queue_size = config.queue_size
         num_threads = config.num_threads
-        Logging.instance.info("start worker; queue size: #{queue_size}; threads #{num_threads} ")
+        queue_full_behavior = parse_queue_full_behavior(config.queue_full_behavior)
+        Logging.instance.info(
+          "start worker; queue size: #{queue_size}; threads #{num_threads}; queue full behavior: #{queue_full_behavior}",
+        )
 
         queue = SizedQueue.new(queue_size)
-        instance = new(queue)
+        instance = new(queue, queue_full_behavior: queue_full_behavior)
         instance.spawn_threads(num_threads)
         instance
       end
 
-      def initialize(queue)
-        @queue = queue
-        @threads = []
+      # Accepts :drop, "drop", "DROP" or ":drop" (values from environment variables are strings).
+      def self.parse_queue_full_behavior(value)
+        normalized = value.to_s.strip.downcase.sub(/\A:/, "")
+        return :block if normalized.empty?
+
+        behavior = normalized.to_sym
+        raise QueueFullBehaviorError, value unless QUEUE_FULL_BEHAVIORS.include?(behavior)
+
+        behavior
       end
 
+      attr_reader :dropped_count
+
+      def initialize(queue, queue_full_behavior: :block)
+        @queue = queue
+        @threads = []
+        @queue_full_behavior = self.class.parse_queue_full_behavior(queue_full_behavior)
+        @dropped_count = 0
+      end
+
+      # With queue_full_behavior :block (the default) this waits for room in the queue.
+      # With :drop it never waits: when the queue is full or closed the action is discarded.
       def enqueue(action, payload)
-        queue.push([action, payload])
+        return queue.push([action, payload]) unless @queue_full_behavior == :drop
+
+        begin
+          queue.push([action, payload], true)
+          nil
+        rescue ThreadError, ClosedQueueError
+          record_drop(action)
+          nil
+        end
       end
 
       def spawn_threads(num_threads)
@@ -80,6 +111,15 @@ module Yabeda
       private
 
       attr_reader :queue, :threads, :logger
+
+      def record_drop(action)
+        @dropped_count += 1
+        return unless @dropped_count == 1 || (@dropped_count % DROP_WARNING_INTERVAL).zero?
+
+        Logging.instance.warn(
+          "queue is full or closed; dropped #{action} (#{@dropped_count} dropped so far, queue_full_behavior: drop)",
+        )
+      end
 
       def actions_left?
         !queue.empty?

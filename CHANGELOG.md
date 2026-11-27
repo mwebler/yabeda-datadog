@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Added
+
+- `queue_full_behavior` option (`YABEDA_DATADOG_QUEUE_FULL_BEHAVIOR`). `block` (default) keeps the current behavior of waiting for room in the queue; `drop` never waits and discards the metric when the queue is full or closed, so recording a metric can't block the caller (e.g. in a forked process whose sender threads are gone). Drops are counted in `Worker#dropped_count` and logged on the first drop and every 1000th.
+
+### Changed
+
+- CI: bump `actions/checkout` and `actions/cache` to v4 (`actions/cache@v2` is retired).
+
 ## 0.3.6 - 2021-10-19
 
 ### Fixed

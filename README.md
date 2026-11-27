@@ -49,6 +49,8 @@ batch_size: 10
 queue_size: 1000
 # threads to sends enqueued metrics
 num_threads: 2
+# what to do when the queue is full: block (wait for room) or drop (discard the metric, never wait)
+queue_full_behavior: block
 # Datadog agent host and port
 agent_host: localhost
 agent_port: 8125
@@ -71,6 +73,8 @@ YABEDA_DATADOG_BATCH_SIZE=10
 YABEDA_DATADOG_QUEUE_SIZE=1000
 # threads to sends enqueued metrics
 YABEDA_DATADOG_NUM_THREADS=2
+# what to do when the queue is full: block (wait for room) or drop (discard the metric, never wait)
+YABEDA_DATADOG_QUEUE_FULL_BEHAVIOR=block
 # Datadog agent host and port
 YABEDA_DATADOG_AGENT_HOST=localhost
 YABEDA_DATADOG_AGENT_PORT=8125
@@ -123,6 +127,13 @@ This error will disappear on next run when all metrics' data reach DataDog and D
 ### Alternatives
 
 Using [Prometheus support for Datadog Agent 6](https://www.datadoghq.com/blog/monitor-prometheus-metrics/) with [yabeda-prometheus](https://github.com/yabeda-rb/yabeda-prometheus).
+
+
+### When the queue is full
+
+Metrics are queued and sent by background threads. By default (`queue_full_behavior: block`), recording a metric when the queue is full waits until a thread frees a slot. If the threads are stopped, which is always the case in a forked child (Puma workers, Resque jobs) because threads don't survive `fork`, or if they stall, the caller waits forever.
+
+Metrics should never block the work they measure. Set `queue_full_behavior: drop` (or `YABEDA_DATADOG_QUEUE_FULL_BEHAVIOR=drop`) to discard a metric instead of waiting when the queue is full or closed. Dropped metrics are counted (`Worker#dropped_count`) and logged at warn level on the first drop and every 1000th after that. If you see drops, raise `queue_size` or `num_threads`, or restart the threads after fork.
 
 ## Contributing
 
